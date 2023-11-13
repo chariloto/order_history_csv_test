@@ -1,0 +1,246 @@
+#!/usr/bin/env perl
+# BL31
+# BL1の投票履歴csvの内容をバリデートのうえGoogle Cloud SQLに格納する
+# eliza.chariloto.comで運用する
+# morimoto 2021.4.3
+
+use Text::CSV;
+use Data::Dumper;
+use Getopt::Long qw(:config posix_default no_ignore_case gnu_compat);
+use Pod::Usage;
+use feature 'say';
+use strict;
+use warnings;
+use utf8;
+use DBI;
+no warnings 'redefine';
+binmode(STDOUT, ':utf8');
+
+################################################################
+# Data::Dumperが日本語でも動くようにするおまじない
+{
+    package Data::Dumper;
+    sub qquote{return wantarray? @_ : shift;}
+}
+$Data::Dumper::Useperl = 1;
+
+our $option_readtest = 0;
+our $option_writetest = 0;
+our $option_help = 0;
+our $infile;
+GetOptions(
+  read_test => \$option_readtest,
+  write_test => \$option_writetest,
+  'help|h' => \$option_help,
+  'i=s' => \$infile
+) or pod2usage();
+
+if($option_help){
+  pod2usage();
+}
+
+################################################################
+# 相手にするCSVは、生成された時期によって、フィールドの順番が違う。
+# これを正確に読んでいくためには、
+# Shift-JIS日本語で書かれたヘッダを解釈する必要がある。
+#
+# まず$hash->{日本語の名前} = 'ascii_field_label' を作っておく
+#
+our %japanese_to_label;
+$japanese_to_label{'開催日'} = 'race_date';
+$japanese_to_label{'会員番号'} = 'user_number';
+$japanese_to_label{'場コード'} = 'jo_code';
+$japanese_to_label{'レース番号'} = 'race_number';
+$japanese_to_label{'投票種別'} = 'voting_type';
+$japanese_to_label{'発売票単位'} = 'sold_unit';
+$japanese_to_label{'重勝レース数'} = 'dw_races';
+$japanese_to_label{'式別'} = 'betting_type';
+$japanese_to_label{'購入口数'} = 'bought_unit';
+$japanese_to_label{'購入金額'} = 'bought_price';
+$japanese_to_label{'払戻金額'} = 'refund_price';
+$japanese_to_label{'返還金額'} = 'return_price';
+$japanese_to_label{'未使用項目'} = 'unused';
+
+################################################################
+my $dsn = 'dbi:mysql:database=c2db;host=ebisu.chariloto.com;';
+my $db_user = 'daikoku';
+my $db_password = '';
+
+my $db_cert_dir = $ENV{HOME} . '/.ssh/eliza-ebisu-20210830';
+my $db_ca_crt = $db_cert_dir . '/server-ca.pem';
+my $db_client_crt = $db_cert_dir . '/client-cert.pem';
+my $db_client_key = $db_cert_dir . '/client-key.pem';
+$dsn .= 'mysql_ssl=1;';
+$dsn .= "mysql_ssl_ca_file=$db_ca_crt;";
+$dsn .= "mysql_ssl_client_cert=$db_client_crt;";
+$dsn .= "mysql_ssl_client_key=$db_client_key;";
+
+our $dbh = DBI->connect($dsn, $db_user, $db_password, {
+    AutoCommit => 0,
+    PrintError => 0,
+    RaiseError => 1,
+    ShowErrorStatement => 1,
+    AutoInactiveDestroy => 1
+}) || die $DBI::errstr;
+
+################################################################
+# データベースへの接続をテストするモード
+# 簡単にselectしてみるだけ
+if($option_readtest){
+    my $stmt = $dbh->prepare('SELECT COUNT(*) FROM jo');
+    $stmt->execute();
+    while(my $hash_ref = $stmt->fetchrow_hashref()){
+        print Dumper($hash_ref);
+    }
+    $stmt->finish();
+    $dbh->disconnect;
+    exit;
+}
+
+################################################################
+# データベースへの接続をテストするモード
+# insert, select, delete
+if($option_writetest){
+    my $stmt = $dbh->prepare('INSERT INTO jo (name, code) VALUES (?, ?)');
+    $stmt->execute('aho', 999);
+
+    $stmt = $dbh->prepare('SELECT * FROM jo WHERE code = 999');
+    $stmt->execute();
+    while(my $hash_ref = $stmt->fetchrow_hashref()){
+        print Dumper($hash_ref);
+    }
+
+    $stmt = $dbh->prepare('DELETE FROM jo WHERE code = 999');
+    $stmt->execute();
+
+    $stmt->finish();
+    $dbh->disconnect;
+    exit;
+}
+
+################################################################
+our $csv = new Text::CSV;
+$csv->binary(1);
+
+unless(defined($infile)){
+    pod2usage();
+}
+
+################################################################
+# ファイル名に含まれているパラメータも念のため解釈しておく
+# ファイルの中身と、ファイル名のパラメータは、
+# 矛盾することはないと思われるが、
+# 万が一矛盾していたら検出できるようにするため。
+our ($filename_race_date, $filename_jo_code,
+     $filename_voting_type, $filename_sold_unit, $filename_dw_races) =
+    ($infile =~ /rireki_(\d\d\d\d\d\d\d\d)_(\d\d)_(\d)_(\d+)_(\d)\.csv$/);
+
+if(0){
+    say "race_date $filename_race_date";
+    say "jo_code = $filename_jo_code";
+    say "voting_type $filename_voting_type";
+    say "sold_unit $filename_sold_unit";
+    say "dw_races $filename_dw_races";
+    say "";
+}
+
+################################################################
+# 処理すべきCSVはShift-JIS
+open our $in, '<:encoding(cp932)', $infile or die "$infile: $!";
+our $processing_line = 0;
+our $seqence = {};
+
+our $sql = 'INSERT INTO rireki(race_date, user_number, jo_code, race_number, voting_type, sold_unit, dw_races, betting_type, bought_unit, bought_price, refund_price, return_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+our $stmt = $dbh->prepare($sql);
+
+while(my $row = $csv->getline($in)){
+    if($processing_line++ == 0){
+	# 最初の1行めはヘッダ
+	# フィールドごとにばらし,
+	my $field_no = 0;
+	for my $header_str (@{$row}){
+	    unless(exists($japanese_to_label{$header_str})){
+		die "illegal japanese header string $header_str";
+	    }		
+
+	    # $hash->{ヘッダ単語} が存在したら、
+	    # その値の 'ascii_field_label' をキーとして
+	    # seqence->{ascii_field_label} = 連番++
+	    # していく
+	    my $ascii_field_label = $japanese_to_label{$header_str};
+	    $seqence->{$ascii_field_label} = $field_no++;
+	}
+	# say Dumper($seqence);
+	next;
+    }
+	
+    my $race_date = $row->[$seqence->{race_date}];
+    my $user_number = $row->[$seqence->{user_number}];
+    my $jo_code = $row->[$seqence->{jo_code}];
+    my $race_number = $row->[$seqence->{race_number}];
+    my $voting_type = $row->[$seqence->{voting_type}];
+    my $sold_unit = $row->[$seqence->{sold_unit}];
+    my $dw_races = $row->[$seqence->{dw_races}];
+    my $betting_type = $row->[$seqence->{betting_type}];
+    my $bought_unit = $row->[$seqence->{bought_unit}];
+    my $bought_price = $row->[$seqence->{bought_price}];
+    my $refund_price = $row->[$seqence->{refund_price}];
+    my $return_price = $row->[$seqence->{return_price}];
+
+    # ありえないことなのだが、
+    # ファイル名に含まれているパラメータと、
+    # CSVデータに含まれているパラメータが異なっていたら、dieする
+    if($filename_race_date != $race_date){
+	die "filename_race_date $filename_race_date and $race_date does not match!";
+    }
+    if($filename_jo_code != $jo_code){
+	die "filename_jo_code $filename_jo_code and $jo_code does not match!";
+    }
+    if($filename_voting_type != $voting_type){
+	die "filename_voting_type $filename_voting_type and $voting_type does not match!";
+    }
+    if($filename_sold_unit != $sold_unit){
+	die "filename_sold_unit $filename_sold_unit and $sold_unit does not match!";
+    }
+    if($filename_dw_races != $filename_dw_races){
+	die "filename_dw_races $filename_dw_races and $dw_races does not match!";
+    }
+
+    if(0){
+	say "race_date $race_date";
+	say "user_number $user_number";
+	say "jo_code $jo_code";
+	say "race_number $race_number";
+	say "voting_type $voting_type";
+	say "sold_unit $sold_unit";
+	say "dw_races $dw_races";
+	say "betting_type $betting_type";
+	say "bought_unit $bought_unit";
+	say "bought_price $bought_price";
+	say "refund_price $refund_price";
+	say "return_price $return_price";
+    }
+
+    $stmt->execute($race_date, $user_number, $jo_code, $race_number, $voting_type, $sold_unit, $dw_races, $betting_type, $bought_unit, $bought_price, $refund_price, $return_price);
+    $stmt->finish();
+}
+$dbh->commit();
+
+say "$processing_line lines read";
+    
+__END__
+
+=head1 NAME
+
+insert - Insert rireki csv into Google Cloud SQL
+
+=head1 SYNOPSIS
+
+./insert [options]
+
+  Options:
+  --read_test    database read test
+  --write_test   database write test
+  --help         this help message
+
+=cut
