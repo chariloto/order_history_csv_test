@@ -1,24 +1,23 @@
 #!/bin/bash
 #########################################
 # BL17 ATRDS/ATRDSSLS.sh
-# 2020/1/28  各会員区分、発売区分毎のUU数と売上
+# 2020/1/28       各会員区分、発売区分毎のUU数と売上
+# 2023/11/13 越田 オート一日2回開催に向けた対応(ディレクトリ分割)
 ########################################
 
 echo Starting BL17 ATRDS/ATRDSSLS.sh at `date`
 set -x
 
+# 変数初期化
+ATRDS_DIR=ATRDS2
+BNKSALES_DIR=BNKSALES2
+VRIREKI_DIR=VRIREKI2
 LOGFILE='timecount.txt'
 
 # 振り分けコマンドサンプル
 # mv rireki_YYYYMM*_0[23456]_0_1_0.csv ./AUTO
 # mv rireki_YYYYMM*_0_1_0.csv ./TUJO
 # mv rireki_YYYYMM*.csv ./JUSO
-
-# フォルダ初期化
-rm -rf AUTO TUJO JUSO 
-rm -rf *_VOTE_ALL.csv 
-
-mkdir AUTO
 
 if [ x$TODAY = x ]; then
   TODAY=$(date +%Y%m%d)
@@ -27,14 +26,13 @@ fi
 # 前日日付を取得
 DNAME=$(date -d "$TODAY 1 day ago" +%Y%m%d)
 
-# 投票履歴回収
-cp -p ${HOME}/VRIREKI/$DNAME/rireki_*_0[23456]_*_4.csv ${HOME}/ATRDS/
+# フォルダ初期化
+rm -rf ${DNAME}
+mkdir -p ${DNAME}/AUTO
 
-###########################################################
-# オート振り分け(当たるんです)
-mv rireki_$DNAME*_0[23456]_*_4.csv AUTO
+# 投票履歴回収(当たるんです)
+cp -p ${HOME}/${VRIREKI_DIR}/${DNAME}/auto/rireki_*_*_*_4.csv ${HOME}/${ATRDS_DIR}/${DNAME}/AUTO
 
-###########################################################
 
 # 会員・売上集計 ##
 #### オート分 ####
@@ -43,7 +41,7 @@ date >> ${LOGFILE}
 echo 'AUTO処理を開始します' >> ${LOGFILE}
 
 
-cd AUTO
+cd ${DNAME}/AUTO
 
 # 投票履歴結合（単純）
 cat rireki*_*_4.csv > AUTO.csv
@@ -63,19 +61,15 @@ ATUser=$(awk -F "," {'print $2'} AUTO.csv | sort -n | uniq | wc -l )
 # 2020/7/27 ヘッダ行の対応（処理漏れ）追加
 ATUser=$(($ATUser - 1))
 
-cd ..
+cd ${HOME}/${ATRDS_DIR}
 echo '処理を終了しました' >> ${LOGFILE}
 
 
 # あたるんです
 echo $ATUser,$ATSel > ${DNAME}_ATsel_user.csv
 
-# 後処理
-mkdir $DNAME
-mv AUTO $DNAME
-
 # リモート対応
-cp -p ${DNAME}_ATsel_user.csv ${HOME}/BNKSALES
+cp -p ${DNAME}_ATsel_user.csv ${HOME}/${BNKSALES_DIR}
 
 # 
 date >> ${LOGFILE}

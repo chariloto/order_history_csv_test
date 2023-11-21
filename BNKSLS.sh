@@ -1,10 +1,14 @@
 #!/bin/bash
 # BL16 BNKSLS.sh
-# 2020/1/28  各会員区分、発売区分毎のUU数と売上
+# 2020/1/28       各会員区分、発売区分毎のUU数と売上
+# 2023/11/13 越田 オート一日2回開催に向けた対応(ディレクトリ分割)
 
 echo Started BL16 BNKSALES/BNKSLS.sh at `date`
 set -x
 
+# 変数初期化
+BNKSALES_DIR=BNKSALES2
+VRIREKI_DIR=VRIREKI2
 LOGFILE=timecount.txt
 
 # 振り分けコマンドサンプル
@@ -12,31 +16,27 @@ LOGFILE=timecount.txt
 # mv rireki_YYYYMM*_0_1_0.csv TUJO
 # mv rireki_YYYYMM*.csv JUSO
 
-# フォルダ初期化
-rm -rf AUTO TUJO JUSO ATRD
-mkdir AUTO TUJO JUSO ATRD
-rm -rf *_VOTE_ALL.csv
-
 if [ x$TODAY = x ]; then
   TODAY=$(date +%Y%m%d)
 fi
 # 前日日付を取得
 DNAME=$(date -d "$TODAY 1 day ago" +%Y%m%d)
 
+# フォルダ初期化
+rm -rf ${DNAME}
+mkdir -p ${DNAME}/AUTO ${DNAME}/TUJO ${DNAME}/JUSO ${DNAME}/ATRD
+
 # 投票履歴回収
-cp -p ${HOME}/VRIREKI/$DNAME/rireki_*.csv ${HOME}/BNKSALES
-
-
 ###########################################################
 
 # オート振り分け
-mv rireki_$DNAME*_0[23456]_0_1_0.csv AUTO
+cp -p ${HOME}/${VRIREKI_DIR}/${DNAME}/auto/rireki_*_0_1_0.csv ${DNAME}/AUTO
 # オート振り分け(当たるんです)
-mv rireki_$DNAME*_0[23456]_*_4.csv ATRD
+cp -p ${HOME}/${VRIREKI_DIR}/${DNAME}/auto/rireki_*_4.csv ${DNAME}/ATRD
 # 通常振り分け
-mv rireki_$DNAME*_0_1_0.csv TUJO
-# 重勝振り分け
-mv rireki_$DNAME*.csv JUSO
+cp -p ${HOME}/${VRIREKI_DIR}/${DNAME}/keirin/rireki_*_0_1_0.csv ${DNAME}/TUJO
+# 重勝振り分け cpコマンドだと特定のファイルを除く処理が出来ないためrsyncコマンドでコピーする
+rsync -av --exclude 'rireki_*_0_1_0.csv' ${HOME}/${VRIREKI_DIR}/${DNAME}/keirin/ ./${DNAME}/JUSO/ > /dev/null
 
 ###########################################################
 
@@ -47,7 +47,7 @@ mv rireki_$DNAME*.csv JUSO
 date >> ${LOGFILE}
 echo 'AUTO処理を開始します' >> ${LOGFILE}
 
-cd AUTO
+cd ${DNAME}/AUTO
 
 # 投票履歴結合（単純）
 cat rireki*_0_1_0.csv > AUTO.csv
@@ -91,7 +91,7 @@ CAUser=$(awk -F "," {'print $2'} CLAULIST.csv |sort -n | uniq |wc -l)
 FAUser=$(awk -F "," {'print $2'} 04AULIST.csv |sort -n | uniq |wc -l)
 
 #フォルダ戻り
-cd ..
+cd ${HOME}/${BNKSALES_DIR}
 echo '処理を終了しました' >> ${LOGFILE}
 
 
@@ -99,7 +99,7 @@ echo '処理を終了しました' >> ${LOGFILE}
 
 date >> ${LOGFILE}
 echo 'TUJO処理を開始します' >> ${LOGFILE}
-cd TUJO
+cd ${DNAME}/TUJO
 
 # 投票履歴結合（単純）
 cat rireki*_0_1_0.csv > TUJO.csv
@@ -142,7 +142,7 @@ JTUser=$(awk -F "," {'print $2'} JNTJLIST.csv |sort -n | uniq |wc -l)
 CTUser=$(awk -F "," {'print $2'} CLTJLIST.csv |sort -n | uniq |wc -l)
 FTUser=$(awk -F "," {'print $2'} 04TJLIST.csv |sort -n | uniq |wc -l)
 
-cd ..
+cd ${HOME}/${BNKSALES_DIR}
 echo '処理を終了しました' >> ${LOGFILE}
 
 #### 重勝分 ####
@@ -150,7 +150,7 @@ echo '処理を終了しました' >> ${LOGFILE}
 date >> ${LOGFILE}
 echo 'JUSO処理を開始します' >> ${LOGFILE}
 
-cd JUSO
+cd ${DNAME}/JUSO
 
 # 投票履歴結合（単純）
 cat rireki*.csv > JUSO.csv
@@ -194,7 +194,7 @@ JJUser=$(awk -F "," {'print $2'} JNJSLIST.csv |sort -n | uniq |wc -l)
 CJUser=$(awk -F "," {'print $2'} CLJSLIST.csv |sort -n | uniq |wc -l)
 FJUser=$(awk -F "," {'print $2'} 04JSLIST.csv |sort -n | uniq |wc -l)
 
-cd ..
+cd ${HOME}/${BNKSALES_DIR}
 echo '処理を終了しました' >> ${LOGFILE}
 
 
@@ -202,7 +202,7 @@ echo '処理を終了しました' >> ${LOGFILE}
 
 date >> ${LOGFILE}
 echo 'ATRD処理を開始します' >> ${LOGFILE}
-cd ATRD
+cd ${DNAME}/ATRD
 
 # 投票履歴結合（単純）
 cat rireki*.csv > ATRD.csv
@@ -246,7 +246,7 @@ JRUser=$(awk -F "," {'print $2'} JNATLIST.csv |sort -n | uniq |wc -l)
 CRUser=$(awk -F "," {'print $2'} CLATLIST.csv |sort -n | uniq |wc -l)
 FRUser=$(awk -F "," {'print $2'} 04ATLIST.csv |sort -n | uniq |wc -l)
 
-cd ..
+cd ${HOME}/${BNKSALES_DIR}
 echo '処理を終了しました' >> ${LOGFILE}
 
 # ファイル出力
@@ -261,10 +261,6 @@ echo $JTUser,$JTSel,$JJUser,$JJSel,$JAUser,$JASel,$JRUser,$JRSel >> ${DNAME}_sel
 
 # 04
 echo $FTUser,$FTSel,$FJUser,$FJSel,$FAUser,$FASel,$FRUser,$FRSel >> ${DNAME}_sel_user.csv
-
-# 後処理
-mkdir $DNAME
-mv AUTO JUSO TUJO ATRD $DNAME
 
 date >> ${LOGFILE}
 echo 'CSV作成処理が完了しました' >> ${LOGFILE}

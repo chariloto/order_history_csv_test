@@ -1,11 +1,15 @@
 #!/bin/bash
 #########################################
 # BL19 PLZVOTE/PLZSLS.sh
-#  2020/6/23  plaza会員区分、発売区分毎のUU数と売上(04会員除く)
-#  2020/9/3　当たるんです対応（オートに含む）
+#  2020/6/23       plaza会員区分、発売区分毎のUU数と売上(04会員除く)
+#  2020/9/3　      当たるんです対応（オートに含む）
+#  2023/11/13 越田 オート一日2回開催に向けた対応(ディレクトリ分割)
 
 echo Starting BL19 PLZVOTE/PLZSLS.sh at `date`
 set -x
+
+PLZVOTE_DIR=PLZVOTE2
+VRIREKI_DIR=VRIREKI2
 LOGFILE='timecount.txt'
 
 # 振り分けコマンドサンプル
@@ -18,10 +22,6 @@ LOGFILE='timecount.txt'
 RNAME=`date -d '14 day ago' "+%Y%m%d"`
 rm -rf $RNAME ${RNAME}_sel_user.csv
 
-# フォルダ初期化
-rm -rf AUTO TUJO JUSO 
-mkdir AUTO TUJO JUSO
-rm -rf *_VOTE_ALL.csv 
 
 if [ x$TODAY = x ]; then
   TODAY=$(date +%Y%m%d)
@@ -30,18 +30,20 @@ fi
 # 前日日付を取得
 DNAME=$(date -d "$TODAY 1 day ago" +%Y%m%d)
 
-# 投票履歴回収
-cp -p ${HOME}/VRIREKI/$DNAME/rireki_*.csv ${HOME}/PLZVOTE
+# フォルダ初期化
+rm -rf ${DNAME}
+mkdir -p ${DNAME}/AUTO ${DNAME}/TUJO ${DNAME}/JUSO
 
+# 投票履歴回収
 ###########################################################
 # オート振り分け
-mv rireki_$DNAME*_0[23456]_0_1_0.csv AUTO
+cp -p ${HOME}/${VRIREKI_DIR}/${DNAME}/auto/rireki_*_0_1_0.csv ${DNAME}/AUTO
 # 当たるんです振り分け
-mv rireki_$DNAME*_0[23456]_*_4.csv AUTO
+cp -p ${HOME}/${VRIREKI_DIR}/${DNAME}/auto/rireki_*_4.csv ${DNAME}/AUTO
 # 通常振り分け
-mv rireki_$DNAME*_0_1_0.csv TUJO
-# 重勝振り分け
-mv rireki_$DNAME*.csv JUSO
+cp -p ${HOME}/${VRIREKI_DIR}/${DNAME}/keirin/rireki_*_0_1_0.csv ${DNAME}/TUJO
+# 重勝振り分け cpコマンドだと特定のファイルを除く処理が出来ないためrsyncコマンドでコピーする
+rsync -av --exclude 'rireki_*_0_1_0.csv' ${HOME}/${VRIREKI_DIR}/${DNAME}/keirin/ ./${DNAME}/JUSO/ > /dev/null
 
 ###########################################################
 # 会員・売上集計 ##
@@ -50,7 +52,7 @@ mv rireki_$DNAME*.csv JUSO
 # デバッグ用
 date >> ${LOGFILE}
 echo 'AUTO処理を開始します' >> ${LOGFILE}
-cd AUTO
+cd ${DNAME}/AUTO
 
 # 投票履歴結合（単純）
 cat rireki*_0_1_0.csv > AUTO.csv
@@ -71,7 +73,7 @@ PASel=`expr $PAALL - $PABACK`
 # 各UU数算出
 PAUser=$(awk -F "," {'print $2'} PLAULIST.csv | sort -n | uniq | wc -l )
 
-cd ..
+cd ${HOME}/${PLZVOTE_DIR}
 echo '処理を終了しました' >> ${LOGFILE}
 
 
@@ -79,7 +81,7 @@ echo '処理を終了しました' >> ${LOGFILE}
 
 date >> ${LOGFILE}
 echo 'TUJO処理を開始します' >> ${LOGFILE}
-cd TUJO
+cd ${DNAME}/TUJO
 
 # 投票履歴結合（単純）
 cat rireki*_0_1_0.csv > TUJO.csv
@@ -98,13 +100,13 @@ PTBACK=$(awk -F, '{sum+=$12} END{print sum}' PLTJLIST.csv )
 PTSel=`expr $PTALL - $PTBACK`
 # 各UU数算出
 PTUser=$(awk -F "," {'print $2'} PLTJLIST.csv | sort -n | uniq | wc -l )
-cd ..
+cd ${HOME}/${PLZVOTE_DIR}
 echo '処理を終了しました' >> ${LOGFILE}
 
 #### 重勝分 ####
 date >> ${LOGFILE}
 echo 'JUSO処理を開始します' >> ${LOGFILE}
-cd JUSO
+cd ${DNAME}/JUSO
 
 # 投票履歴結合（単純）
 cat rireki*.csv > JUSO.csv
@@ -123,16 +125,12 @@ PJBACK=$(awk -F, '{sum+=$13} END{print sum}' PLJSLIST.csv )
 PJSel=`expr $PJALL - $PJBACK`
 # 各UU数算出
 PJUser=$(awk -F "," {'print $2'} PLJSLIST.csv | sort -n | uniq | wc -l )
-cd ..
+cd ${HOME}/${PLZVOTE_DIR}
 echo '処理を終了しました' >> ${LOGFILE}
 
 # ファイル出力
 # PLAZA
 echo $PTUser,$PTSel,$PJUser,$PJSel,$PAUser,$PASel > ${DNAME}_sel_user.csv
-
-# 後処理
-mkdir $DNAME
-mv AUTO JUSO TUJO $DNAME
 
 date >> ${LOGFILE}
 echo 'CSV作成処理が完了しました' >> ${LOGFILE}

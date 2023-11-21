@@ -4,6 +4,10 @@
 #  変更履歴
 #  2019/2/2 三井 新規作成
 #  2022/4/8 三井 当たるんですをJS→ATへ
+#  2023/11/13 越田 オート一日2回開催に向けた対応(ディレクトリ分割)
+
+# 変数初期化
+VRIREKI_DIR=VRIREKI2
 
 # 前日日付を取得
 if [ x$DNAME = x ]; then
@@ -13,19 +17,23 @@ fi
 echo `date` " BL10 チャリカ利用者数集計を実施します"
 
 # 集計用フォルダ作成
-cd ${HOME}/VRIREKI/${DNAME}
-mkdir rireki
-cp -p rireki_*.csv rireki
+cd ${HOME}/${VRIREKI_DIR}/${DNAME}
+mkdir -p rireki/AT rireki/JS rireki/TJ
+# cp -p rireki_*.csv rireki
 cd rireki
-mkdir AT JS TJ
+# mkdir AT JS TJ
 
-mv rireki_${DNAME}_0[23456]_0_1_0.csv AT
-mv rireki_${DNAME}_0[23456]_1_*.csv AT
-mv rireki_${DNAME}_*_0_1_0.csv TJ
-mv rireki_${DNAME}_*.csv JS
+# mv rireki_${DNAME}_0[23456]_0_1_0.csv AT
+# mv rireki_${DNAME}_0[23456]_1_*.csv AT
+# mv rireki_${DNAME}_*_0_1_0.csv TJ
+# mv rireki_${DNAME}_*.csv JS
+cp auto/rireki*.csv rireki/AT
+cp keirin/rireki*_0_1_0.csv rireki/TJ
+# cpコマンドだと特定のファイルを除く処理が出来ないためrsyncコマンドでコピーする
+rsync -av --exclude 'rireki_*_0_1_0.csv' ./keirin/ ./rireki/JS/ > /dev/null
 
 # 集計オート=ここから
-cd AT
+cd rireki/AT
 
 for file in `\find . -maxdepth 1 -type f`; do
   nkf -S -w $file > ${file}_U

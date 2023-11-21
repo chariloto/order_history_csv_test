@@ -6,6 +6,10 @@
 #  2023/2/28 鈴木 小松島プラザ追加
 #  2023/6/28 三井 名古屋プラザ追加
 #  2023/10/17 竹田 四日市プラザ追加
+#  2023/11/13 越田 オート一日2回開催に向けた対応(ディレクトリ分割)
+
+# 変数初期化
+VRIREKI_DIR=VRIREKI2
 
 # 前日日付を取得
 if [ x$DNAME = x ]; then
@@ -18,11 +22,11 @@ if [ `hostname` = 'KOVS-SVR' ]; then
   RCLONE_OPTION='--dry-run'
 fi
 
-cd ${HOME}/VRIREKI/$DNAME
+cd ${HOME}/${VRIREKI_DIR}/$DNAME
 
 rm -f PUSER.txt ${DNAME}_OUT.csv
 
-for file in `\find . -maxdepth 1 -type f`; do
+for file in `\find . -maxdepth 2 -type f` -name 'rireki_*.csv'`; do
   nkf -S -w $file > ${file}_U
   grep -e ^${DNAME} ${file}_U > ${file}_CU
   awk -F "," {'print $2'} ${file}_CU > ${file}_sort_CU
@@ -31,7 +35,7 @@ for file in `\find . -maxdepth 1 -type f`; do
   cat ${file}_sort_CU >> PUSER.txt
 done
 
-rm -f *.csv*U
+rm -f keirin/*.csv*U auto/*.csv*U
 
 sort -n ${DNAME}_UOUT.csv | uniq > ${DNAME}_SUOUT.csv
 sort -n PUSER.txt | uniq > PUUSER.txt
@@ -167,8 +171,8 @@ echo "42,$NAGOY" >> ${DNAME}_OUT.csv
 echo "48,$YOKKA" >> ${DNAME}_OUT.csv
 
 # できた前日付のファイルをGoogle Driveにアップロード
-rclone ${RCLONE_OPTION} copy ${HOME}/VRIREKI/${DNAME}/${DNAME}_OUT.csv 'chari-filemaster-gd250:/kovs/※(仮)作業日報/プラザ売上速報'
-rclone ${RCLONE_OPTION} copy ${HOME}/VRIREKI/${DNAME}/${DNAME}_SUOUT.csv 'chari-filemaster-gd250:/kovs/※(仮)作業日報/【保存】売上報告シート'
+rclone ${RCLONE_OPTION} copy ${HOME}/${VRIREKI_DIR}/${DNAME}/${DNAME}_OUT.csv 'chari-filemaster-gd250:/kovs/※(仮)作業日報/プラザ売上速報'
+rclone ${RCLONE_OPTION} copy ${HOME}/${VRIREKI_DIR}/${DNAME}/${DNAME}_SUOUT.csv 'chari-filemaster-gd250:/kovs/※(仮)作業日報/【保存】売上報告シート'
 
 # 前々日付のファイルをGoogle Driveから消すのは、
 # filemaster名義でGASに仕込んだBL28がやってくれる
