@@ -1,0 +1,198 @@
+#!/usr/bin/env ruby
+# coding: utf-8
+# BL54 insert-vote_report_summary
+#
+# vote_report*.csvの「前半」をGoogle Cloud SQL for MySQLに挿入する
+#
+# morimoto@biz.chariloto.com
+# 2022.7.6
+# 2023.1.23 takashi.suzuki@bix.chariloto.com 当たるんですミニ→当たるんです4に伴い修正
+
+require 'optparse'
+require 'mysql2'
+require 'csv'
+
+# オプション引数の設定・解釈
+begin
+  infile = nil
+  option = OptionParser.new
+  option.banner = "Usage: ./#{option.program_name} -i vote_report*.csv"
+  option.on('-i FILE', '--in FILE', 'specify downloaded vote_report*.csv'){ |v| infile = v }
+  option.on('-h', '--help', 'show this help') { puts option; exit }
+  option.parse!(ARGV)
+  unless infile then
+    warn option
+    exit 1
+  end
+end
+
+# DBに接続
+def connect_db
+  cert_dir = ENV['HOME'] + '/.ssh/eliza-ebisu-20210830'
+  return Mysql2::Client.new(
+           :host => 'ebisu.chariloto.com',
+           :username => 'daikoku',
+           :database => 'c2db',
+           :password => '',
+           :sslcapath => cert_dir,
+           :sslkey => cert_dir + '/client-key.pem',
+           :sslcert => cert_dir + '/client-cert.pem',
+           :sslca => cert_dir + '/server-ca.pem',
+           :encoding => 'utf8mb4'
+         )
+end
+
+# どのフィールドがCSVの何列めなのか
+def index(name)
+  case name
+  when 'race_date'              # 開催日
+    return 0
+  when 'acquisition_thirdparty_label' # 連携先
+    return 6
+  when 'sales_item_id'          # 商品
+    return 7
+  when 'gross_sales_units'      # 販売口数
+    return 8
+  when 'purchased_users'        # 利用者数
+    return 9
+  when 'gross_sales_price'      # 販売金額
+    return 10
+  when 'returned_price'         # 返還金額
+    return 11
+  when 'net_sales_price'        # 売上金額
+    return 12
+  when 'hit_units'              # 的中口数
+    return 13
+  when 'refunded_price'         # 払戻金額
+    return 14
+  when 'refunded_rounddown_price' # 払戻切り捨て金額
+    return 15
+  end
+
+  warn "unknown index name: #{name}"
+  exit 2
+end
+
+# 連携先の列には文字列が入っている
+# これを数値に正規化する
+def acquisition_thirdparty_label(name)
+
+  # 正規化といっても、数値に正規化はしてなくて、
+  # users, users_archiveテーブルのacquisition_thirdparty_labelの文字列に合わせている
+  # 頭わるいけど、いったんゆるして……
+
+  # 文字列の揺れになるべく追従できるよう、regexpでマッチする
+  case name
+  when /なし/
+    return nil
+  when /すべて/
+    return 'all'
+  when /アオケイスタジアム/
+    return 'aokei'
+  when /DMM競輪/i
+    return 'dmm'
+  when /e新聞BET/i
+    return 'ebet'
+  when /競単/
+    return 'keitan'
+  when /Loto Place/i
+    return 'lotoplace'
+  when /みんなの競輪/
+    return 'minnano_keirin'
+  when /mixi/
+    return 'mixi'
+  end
+
+  warn "unknown acquisition_thirdparty_label: #{name}"
+  exit 3
+end
+
+# 商品の列には文字列が入っている
+# これを数値に正規化する
+def sales_item_id(name)
+
+  case name
+  when /^合計/
+    return 0
+  when /^通常競輪/
+    return 1
+  when /^チャリロト(計)*$/
+    return 2
+  when /^チャリロトセレクト/
+    return 3
+  when /^チャリロト5/
+    return 4
+  when /^チャリロト3/
+    return 5
+  when /^Dokanto!7/
+    return 6
+  when /^Dokanto!4two/
+    return 7
+  when /^オート/
+    return 8
+  when /^当たるんです4/
+    return 9
+  when /^当たるんです メガ/
+    return 10
+  when /^当たるんです ギガ/
+    return 11
+  end
+
+  warn "unknown sales_item name: #{name}"
+  exit 4
+end
+
+def utf8(string)
+  if string.nil? then
+    return nil
+  end
+  return string.encode('utf-8')
+end
+
+################################################################
+begin
+
+  client = connect_db()
+  statement = client.prepare('INSERT IGNORE INTO vote_report_summary (race_date, acquisition_thirdparty_label, sales_item_id, gross_sales_units, purchased_users, gross_sales_price, returned_price, net_sales_price, hit_units, refunded_price, refunded_rounddown_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+
+  buffer = Array.new
+
+  CSV.foreach(infile, headers: true, :encoding => 'cp932') do |row|
+
+    if row[index('race_date')].nil? then
+      # 開催日のカラムがnilであるあいだは「前半」である
+      # 前半のあいだは、CSVの行をbuffer配列にプッシュしていく
+      buffer.push(row)
+    else
+      # 開催日のカラムに日付がきた
+      race_date = row[index('race_date')]
+      # つまり「前半」のおわり
+      # bufferに保存しておいたデータをinsert
+      buffer.each do |row|
+        statement.execute(
+          race_date,
+          acquisition_thirdparty_label(utf8(row[index('acquisition_thirdparty_label')])),
+          sales_item_id(utf8(row[index('sales_item_id')])),
+          row[index('gross_sales_units')].delete(',').to_i,
+          row[index('purchased_users')].delete(',').to_i,
+          row[index('gross_sales_price')].delete(',').to_i,
+          row[index('returned_price')].delete(',').to_i,
+          row[index('net_sales_price')].delete(',').to_i,
+          row[index('hit_units')].delete(',').to_i,
+          row[index('refunded_price')].delete(',').to_i,
+          row[index('refunded_rounddown_price')].delete(',').to_i
+        )
+      end
+      break
+    end
+
+  rescue => e
+    warn "can't open #{infile}: #{e}"
+    exit 5
+  end
+
+  client.close()
+  exit
+end
+
+__END__

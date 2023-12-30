@@ -20,7 +20,7 @@ echo `date` " BL10 チャリカ利用者数集計を実施します"
 cd ${HOME}/${VRIREKI_DIR}/${DNAME}
 mkdir -p rireki/AT rireki/JS rireki/TJ
 # cp -p rireki_*.csv rireki
-cd rireki
+# cd rireki
 # mkdir AT JS TJ
 
 # mv rireki_${DNAME}_0[23456]_0_1_0.csv AT

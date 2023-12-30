@@ -1,0 +1,124 @@
+#!/usr/bin/env ruby
+# coding: utf-8
+# BL54 insert-plaza_keirin_vote_report
+# plaza_keirin_vote_report.csvをGoogle Cloud SQL for MySQLに挿入する
+#
+# morimoto@biz.chariloto.com
+# 2022.6.17
+
+require 'optparse'
+require 'mysql2'
+require 'csv'
+
+# オプション引数の設定・解釈
+begin
+  infile = nil
+  option = OptionParser.new
+  option.banner = "Usage: #{option.program_name} -i plaza_keirin_vote_report.csv"
+  option.on('-i FILE', '--in FILE', 'specify downloaded plaza_keirin_vote_report.csv'){ |v| infile = v }
+  option.on('-h', '--help', 'show this help') { puts option; exit }
+  option.parse!(ARGV)
+  unless infile then
+    warn option
+    exit 1
+  end
+end
+
+# DBに接続
+def connect_db
+  cert_dir = ENV['HOME'] + '/.ssh/eliza-ebisu-20210830'
+  return Mysql2::Client.new(
+           :host => 'ebisu.chariloto.com',
+           :username => 'daikoku',
+           :database => 'c2db',
+           :password => '',
+           :sslcapath => cert_dir,
+           :sslkey => cert_dir + '/client-key.pem',
+           :sslcert => cert_dir + '/client-cert.pem',
+           :sslca => cert_dir + '/server-ca.pem',
+           :encoding => 'utf8mb4'
+         )
+end
+
+def index(name)
+  case name
+  when 'race_date'
+    return 0                    # 開催日
+  when 'plaza_name'
+    return 1                    # プラザ名
+  when 'jo_code'
+    return 2                    # 場
+  when 'promoter_name'
+    return 3                    # 施行者
+  when 'is_local'
+    return 4                    # 場内ネット
+  when 'sale_type_label'
+    return 5                    # 販売種類
+  when 'gross_sales_price'
+    return 6                    # 販売金額
+  when 'returned_price'
+    return 7                    # 返還金額
+  when 'net_sales_price'
+    return 8                    # 売上金額
+  when 'refunded_price'
+    return 9                    # 払戻金額
+  end
+  warn "unknown index name: #{name}"
+  exit 2
+end
+
+def is_local(name)
+  case name
+  when 'ネット'
+    return 0
+  when '場内'
+    return 1
+  end
+  warn "unknown is_local name: #{name}"
+  exit 3
+end
+
+def utf8(string)
+  if string.nil? then
+    return nil
+  end
+  return string.encode('utf-8')
+end
+
+# main
+begin
+
+  client = connect_db()
+  statement = client.prepare('INSERT IGNORE INTO plaza_keirin_vote_report (race_date, plaza_name, jo_code, promoter_name, is_local, sale_type_label, gross_sales_price, returned_price, net_sales_price, refunded_price) VALUES (?, ?, (select code from jo where jo.name = ?), ?, ?, ?, ?, ?, ?, ?)')
+
+  line = 0
+  CSV.foreach(infile, headers: true, :encoding => 'cp932') do |row|
+
+    line += 1
+    if line.modulo(100) == 0 then
+      STDERR.puts "Reading line #{line}..."
+    end
+
+    statement.execute(
+      row[index('race_date')],
+      utf8(row[index('plaza_name')]),
+      utf8(row[index('jo_code')]),
+      utf8(row[index('promoter_name')]),
+      is_local(utf8(row[index('is_local')])),
+      utf8(row[index('sale_type_label')]),
+      row[index('gross_sales_price')],
+      row[index('returned_price')],
+      row[index('net_sales_price')],
+      row[index('refunded_price')]
+    )
+
+  rescue => e
+    warn "can't open #{infile}: #{e}"
+    exit 4
+  end
+
+  client.close()
+  exit
+end
+
+__END__

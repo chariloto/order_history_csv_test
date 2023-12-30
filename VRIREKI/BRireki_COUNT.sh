@@ -26,7 +26,7 @@ cd ${HOME}/${VRIREKI_DIR}/$DNAME
 
 rm -f PUSER.txt ${DNAME}_OUT.csv
 
-for file in `\find . -maxdepth 2 -type f` -name 'rireki_*.csv'`; do
+for file in `\find . -maxdepth 2 -type f -name 'rireki_*.csv'`; do
   nkf -S -w $file > ${file}_U
   grep -e ^${DNAME} ${file}_U > ${file}_CU
   awk -F "," {'print $2'} ${file}_CU > ${file}_sort_CU

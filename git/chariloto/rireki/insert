@@ -135,6 +135,15 @@ our ($filename_race_date, $filename_jo_code,
      $filename_voting_type, $filename_sold_unit, $filename_dw_races) =
     ($infile =~ /rireki_(\d\d\d\d\d\d\d\d)_(\d\d)_(\d)_(\d+)_(\d)\.csv$/);
 
+#keirinディレクトリかautoディレクトリかを判断する(keirin = 1 , auto = 2)
+if($infile =~ /keirin/) {
+    my $rtype = 1;
+}elsif($infile =~ /auto/) {
+    my $rtype = 2;
+}else{
+    my $rtype = 0;
+}
+
 if(0){
     say "race_date $filename_race_date";
     say "jo_code = $filename_jo_code";
@@ -176,7 +185,8 @@ while(my $row = $csv->getline($in)){
 	
     my $race_date = $row->[$seqence->{race_date}];
     my $user_number = $row->[$seqence->{user_number}];
-    my $jo_code = $row->[$seqence->{jo_code}];
+#    my $jo_code = $row->[$seqence->{jo_code}];
+    my $jo_code_buf = $row->[$seqence->{jo_code}];
     my $race_number = $row->[$seqence->{race_number}];
     my $voting_type = $row->[$seqence->{voting_type}];
     my $sold_unit = $row->[$seqence->{sold_unit}];
@@ -193,8 +203,10 @@ while(my $row = $csv->getline($in)){
     if($filename_race_date != $race_date){
 	die "filename_race_date $filename_race_date and $race_date does not match!";
     }
-    if($filename_jo_code != $jo_code){
-	die "filename_jo_code $filename_jo_code and $jo_code does not match!";
+#    if($filename_jo_code != $jo_code){
+#	die "filename_jo_code $filename_jo_code and $jo_code does not match!";
+    if($filename_jo_code != $jo_code_buf){
+	die "filename_jo_code $filename_jo_code and $jo_code_buf does not match!";
     }
     if($filename_voting_type != $voting_type){
 	die "filename_voting_type $filename_voting_type and $voting_type does not match!";
@@ -205,6 +217,16 @@ while(my $row = $csv->getline($in)){
     if($filename_dw_races != $filename_dw_races){
 	die "filename_dw_races $filename_dw_races and $dw_races does not match!";
     }
+
+    # keirinとautoを判断して0埋める
+    if($rtype=1){
+        my $jo_code = substr('00' . $jo_code_buf, -2 ,2 );
+    }elsif($rtype=2){
+        my $jo_code = substr('00' . $jo_code_buf, -3 ,3 );
+    }else{
+        my $jo_code = substr('00' . $jo_code_buf, -2 ,2 );
+    }
+    
 
     if(0){
 	say "race_date $race_date";
